@@ -1,0 +1,17 @@
+# зависимости
+node_modules/
+
+# секреты и локальные настройки
+.env
+.env.*
+!.env.example
+
+# логи и системные файлы
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

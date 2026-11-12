@@ -1,0 +1,237 @@
+### Events API — тестовые запросы (VS Code, расширение "REST Client")
+### Перед началом: npm run db:seed и npm run dev
+
+@base = http://localhost:3000/api
+
+### ---------- 0. Проверка запуска ----------
+GET {{base}}/health
+
+### ---------- 1. Регистрация и вход ----------
+# 201: новый пользователь (роль всегда user)
+POST {{base}}/auth/register
+Content-Type: application/json
+
+{ "email": "student@example.com", "name": "Айдар Нурлан", "password": "StrongPass1" }
+
+###
+# 409: email уже занят
+POST {{base}}/auth/register
+Content-Type: application/json
+
+{ "email": "student@example.com", "name": "Айдар Нурлан", "password": "StrongPass1" }
+
+###
+# 400: попытка выдать себе роль admin
+POST {{base}}/auth/register
+Content-Type: application/json
+
+{ "email": "hacker@example.com", "name": "Hacker", "password": "StrongPass1", "role": "admin" }
+
+###
+# 400: невалидные данные
+POST {{base}}/auth/register
+Content-Type: application/json
+
+{ "email": "not-email", "name": "A", "password": "123" }
+
+###
+# 200: вход администратора, JWT сохраняется в переменную adminToken
+# @name loginAdmin
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{ "email": "admin@example.com", "password": "Admin12345" }
+
+###
+@adminToken = {{loginAdmin.response.body.accessToken}}
+
+# 200: вход обычного пользователя
+# @name loginUser
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{ "email": "anna@example.com", "password": "User12345" }
+
+###
+@userToken = {{loginUser.response.body.accessToken}}
+
+# 401: неверный пароль
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{ "email": "anna@example.com", "password": "wrong-password" }
+
+### ---------- 2. Мероприятия (публичное чтение) ----------
+GET {{base}}/events
+
+###
+GET {{base}}/events?venueId=1&page=1&limit=5
+
+###
+# Связанный запрос: мероприятие + площадка + автор
+GET {{base}}/events/1
+
+###
+# 404
+GET {{base}}/events/9999
+
+###
+# 400: id не число
+GET {{base}}/events/abc
+
+### ---------- 3. Мероприятия (CRUD, admin) ----------
+# 401: без токена
+POST {{base}}/events
+Content-Type: application/json
+
+{ "title": "Новое мероприятие", "startsAt": "2027-01-10T09:00:00Z", "endsAt": "2027-01-10T12:00:00Z", "capacity": 20, "venueId": 2 }
+
+###
+# 403: токен обычного пользователя
+POST {{base}}/events
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{ "title": "Новое мероприятие", "startsAt": "2027-01-10T09:00:00Z", "endsAt": "2027-01-10T12:00:00Z", "capacity": 20, "venueId": 2 }
+
+###
+# 201: админ создаёт мероприятие
+# @name createEvent
+POST {{base}}/events
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "title": "Новое мероприятие", "description": "Описание", "startsAt": "2027-01-10T09:00:00Z", "endsAt": "2027-01-10T12:00:00Z", "capacity": 20, "venueId": 2 }
+
+###
+@eventId = {{createEvent.response.body.id}}
+
+# 400: окончание раньше начала
+POST {{base}}/events
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "title": "Ошибка дат", "startsAt": "2027-01-10T12:00:00Z", "endsAt": "2027-01-10T09:00:00Z", "capacity": 20, "venueId": 2 }
+
+###
+# 400: вместимость больше вместимости площадки (у площадки 2 — 50 мест)
+POST {{base}}/events
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "title": "Слишком много мест", "startsAt": "2027-01-10T09:00:00Z", "endsAt": "2027-01-10T12:00:00Z", "capacity": 500, "venueId": 2 }
+
+###
+# 404: площадки не существует
+POST {{base}}/events
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "title": "Нет площадки", "startsAt": "2027-01-10T09:00:00Z", "endsAt": "2027-01-10T12:00:00Z", "capacity": 20, "venueId": 9999 }
+
+###
+# 200: изменение
+PATCH {{base}}/events/{{eventId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "title": "Новое мероприятие (обновлено)", "capacity": 30 }
+
+###
+# 400: пустое тело
+PATCH {{base}}/events/{{eventId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{}
+
+### ---------- 4. Записи на мероприятия ----------
+# 401: без токена
+POST {{base}}/events/1/registrations
+
+###
+# 201: user записывается (id пользователя берётся из токена)
+POST {{base}}/events/3/registrations
+Authorization: Bearer {{userToken}}
+
+###
+# 409: повторная запись
+POST {{base}}/events/3/registrations
+Authorization: Bearer {{userToken}}
+
+###
+# 404: нет такого мероприятия
+POST {{base}}/events/9999/registrations
+Authorization: Bearer {{userToken}}
+
+###
+# 200: мои записи (связанный запрос)
+GET {{base}}/registrations/my
+Authorization: Bearer {{userToken}}
+
+###
+# 403: user не видит список участников
+GET {{base}}/events/1/registrations
+Authorization: Bearer {{userToken}}
+
+###
+# 200: admin видит участников
+GET {{base}}/events/1/registrations
+Authorization: Bearer {{adminToken}}
+
+###
+# 403: user отменяет чужую запись (запись id=2 принадлежит Тимуру)
+DELETE {{base}}/registrations/2
+Authorization: Bearer {{userToken}}
+
+###
+# 200: admin отменяет любую запись
+DELETE {{base}}/registrations/2
+Authorization: Bearer {{adminToken}}
+
+### ---------- 5. Площадки ----------
+GET {{base}}/venues
+
+###
+# Связанный запрос: площадка + её мероприятия
+GET {{base}}/venues/1
+
+###
+# 403: user создаёт площадку
+POST {{base}}/venues
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{ "name": "Зал", "address": "Алматы, ул. Абая, 1", "capacity": 50 }
+
+###
+# 201: admin создаёт площадку
+# @name createVenue
+POST {{base}}/venues
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "name": "Актовый зал", "address": "г. Алматы, ул. Абая, 10", "capacity": 300 }
+
+###
+@venueId = {{createVenue.response.body.id}}
+
+PATCH {{base}}/venues/{{venueId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "capacity": 350 }
+
+###
+# 409: у площадки 1 есть мероприятия
+DELETE {{base}}/venues/1
+Authorization: Bearer {{adminToken}}
+
+###
+# 200: удаление созданной площадки без мероприятий
+DELETE {{base}}/venues/{{venueId}}
+Authorization: Bearer {{adminToken}}
+
+### ---------- 6. Удаление мероприятия ----------
+DELETE {{base}}/events/{{eventId}}
+Authorization: Bearer {{adminToken}}
